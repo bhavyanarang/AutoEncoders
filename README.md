@@ -1,2 +1,0 @@
-# AutoEncoders
-Making autoencoders
