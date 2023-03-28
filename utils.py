@@ -18,6 +18,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from torchvision import datasets, transforms
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
+import wandb
 matplotlib_axes_logger.setLevel('ERROR')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -131,6 +132,15 @@ def trainAutoEncoder(isVae : bool, model : nn.Module, optimizer: optim, device: 
     model_save_path :(string) path where we have to save the model params
     model_name : (string) to save the files with model name
     """
+    wandb.init(
+        project="autoencoders",
+        
+        config={
+        "isVae" : isVae,
+        "model_name" : model_name,
+        "epochs": epochs,
+        }
+    )
 
     print("Training model : " + str(model_name))
     start_time  = time.time()
@@ -156,6 +166,7 @@ def trainAutoEncoder(isVae : bool, model : nn.Module, optimizer: optim, device: 
                 gen_image = gen_image.view(req_shape)
                 loss = model.lossCalc(data, gen_image)
             
+            wandb.log({"loss": loss})
             # backward
             optimizer.zero_grad()
             loss.backward()
@@ -165,6 +176,7 @@ def trainAutoEncoder(isVae : bool, model : nn.Module, optimizer: optim, device: 
             optimizer.step()
 
     end_time = time.time()
+    wandb.finish()
 
     if(loss_plot_path):
         plt.figure(figsize=(12, 10))
