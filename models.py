@@ -15,6 +15,25 @@ def calculate2DConvTransposeOutput(kernel_size : int, padding : int, stride : in
     size = (input_size - 1) * stride - 2*padding + kernel_size
     return size
 
+def getConv2D(in_channels : int, out_channels : int, kernel_size : int, stride : int = 1, padding : int = 0):
+
+    return nn.Conv2d(
+            in_channels = in_channels,
+            out_channels = out_channels,
+            kernel_size = (kernel_size, kernel_size),
+            stride = (stride, stride),
+            padding = (padding, padding),
+        )
+
+def getConvTranspose2D(in_channels : int, out_channels :int, kernel_size : int, stride:int = 1, padding : int = 0):
+    return nn.ConvTranspose2d(
+            n_channels = in_channels,
+            out_channels = out_channels,
+            kernel_size = (kernel_size, kernel_size),
+            stride = (stride, stride),
+            padding = (padding, padding),
+        )
+
 class flatBatch(nn.Module):
     def forward(self, input : torch.Tensor):
         batch_size = input.size(0)
@@ -58,37 +77,19 @@ class simple_AE(nn.Module):
         loss = loss(x, out)
         return loss
 
-class conv_AE(nn.Module):
-    def __init__(self, input_image_size : int, in_channels = 1):
-        super(conv_AE, self).__init__()
+class convolutionalEncoder(nn.Module):
+    def __init__(self, input_image_size : int, in_channels : int = 1) -> None:
+        super(convolutionalEncoder, self).__init__()
 
         #encoder
-        self.conv1 = nn.Conv2d(
-            in_channels = in_channels,
-            out_channels = 32,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv2 = nn.Conv2d(
-            in_channels = 32,
-            out_channels = 64,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv3 = nn.Conv2d(
-            in_channels = 64,
-            out_channels = 128,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
+        self.conv1 = getConv2D(in_channels, 32, 3, 2, 1)
+        self.conv2 = getConv2D(32, 64, 3, 2, 1)
+        self.conv3 = getConv2D(64, 128, 3, 2, 1)
 
         self.size_after_conv = input_image_size
         for _ in range(3):
             self.size_after_conv = calculate2DConvOutput(3, 1, 2, self.size_after_conv)
-        
+
         self.image_size_after_conv = [128, self.size_after_conv, self.size_after_conv]  #size after convolution except batch
         self.fc_in_size = 128 * self.size_after_conv * self.size_after_conv
 
@@ -107,6 +108,16 @@ class conv_AE(nn.Module):
 
         self.encoder = nn.Sequential(*self.activate_encoder)
 
+    def getEncoder(self):
+        return self.encoder
+    
+    def getFcNeuronNums(self):
+        return self.fc_in_size
+    
+class convolutionalDecoder(nn.Module):
+    def __init__(self, input_features_size : int , in_channels : int = 128):
+        super(convolutionalDecoder, self).__init__()
+
         self.fc3 = nn.Linear(self.fc_in_size//4//8, self.fc_in_size//4)
         self.fc4 = nn.Linear(self.fc_in_size//4, self.fc_in_size)
         
@@ -118,24 +129,9 @@ class conv_AE(nn.Module):
             stride=(2,2),
             padding=(1,1),
         )
-        
-        self.convTrans2 = nn.ConvTranspose2d(
-            in_channels=64,
-            out_channels=32,
-            kernel_size=(3,3),
-            stride=(2,2),
-            padding=(1,1),
-            output_padding=(1,1),
-        )
-        
-        self.convTrans3 = nn.ConvTranspose2d(
-            in_channels=32,
-            out_channels=in_channels,
-            kernel_size=(3,3),
-            stride=(2,2),
-            padding=(1,1),
-            output_padding=(1,1)
-        )
+        self.convTrans1 = getConvTranspose2D(128, 64, 3, 2, 1)
+        self.convTrans2 = getConvTranspose2D(64, 32, 3, 2, 1)
+        self.convTrans3 = getConvTranspose2D(32, in_channels, 3, 2, 1)
 
         self.decode = [self.fc3, self.fc4, unflatBatch(shape = self.image_size_after_conv), self.convTrans1, self.convTrans2, self.convTrans3]
         self.activate_decoder = []
@@ -148,6 +144,22 @@ class conv_AE(nn.Module):
 
         self.decoder = nn.Sequential(*self.activate_decoder)
 
+    def getDecoder(self):
+        return self.decoder
+
+class conv_AE(nn.Module):
+    def __init__(self, input_image_size : int, in_channels = 1):
+        super(conv_AE, self).__init__()
+
+        #encoder
+        convEncoder = convolutionalEncoder(input_image_size, in_channels)
+        self.encoder = convEncoder.getEncoder()
+        self.FcSize = convEncoder.getFcNeuronNums()
+
+        #decoder
+        convDecoder = convolutionalDecoder(self.FcSize)
+        self.decoder = convDecoder.getDecoder()
+        
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
@@ -166,28 +178,9 @@ class conv_AE_without_conv_transpose(nn.Module):
         super(conv_AE_without_conv_transpose, self).__init__()
         
         #encoder
-        self.conv1 = nn.Conv2d(
-            in_channels = in_channels,
-            out_channels = 32,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv2 = nn.Conv2d(
-            in_channels = 32,
-            out_channels = 64,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv3 = nn.Conv2d(
-            in_channels = 64,
-            out_channels = 128,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        
+        self.conv1 = getConv2D(in_channels, 32, 3, 2, 1)
+        self.conv2 = getConv2D(32, 64, 3, 2, 1)
+        self.conv3 = getConv2D(64, 128, 3, 2, 1)        
         
         self.size_after_conv = input_image_size
         for _ in range(3):
@@ -218,23 +211,11 @@ class conv_AE_without_conv_transpose(nn.Module):
 
         #(batch_size, channels, height, width)
         self.upSample1 = nn.Upsample(size=(7,7), mode=mode)
-        self.conv4 = nn.Conv2d(
-            in_channels = 128,
-            out_channels = 64,
-            kernel_size = 1
-        )
+        self.conv4 = getConv2D(in_channels=128, out_channels=64, kernel_size=1)
         self.upSample2 = nn.Upsample(size=(14,14), mode=mode)
-        self.conv5 = nn.Conv2d(
-            in_channels = 64,
-            out_channels = 32,
-            kernel_size = 1
-        )
+        self.conv5 = getConv2D(in_channels=64, out_channels=32, kernel_size=1)
         self.upSample3 = nn.Upsample(size=(28,28), mode=mode)
-        self.conv6 = nn.Conv2d(
-            in_channels = 32,
-            out_channels = in_channels,
-            kernel_size = 1
-        )
+        self.conv6 = getConv2D(in_channels=32, out_channels=in_channels, kernel_size=1)
 
         self.decode = [self.fc3, self.fc4, unflatBatch(shape = self.image_size_after_conv), self.upSample1, self.conv4, self.upSample2, self.conv5, self.upSample3, self.conv6]
         self.activate_decoder = []
@@ -259,33 +240,16 @@ class conv_AE_without_conv_transpose(nn.Module):
         loss = nn.MSELoss()
         loss = loss(x, out)
         return loss
+
 class variational_AE(nn.Module):
     def __init__(self, input_image_size, in_channels = 1, latent_dimension = 4):
         super(variational_AE, self).__init__()
 
         #encoder
-        self.conv1 = nn.Conv2d(
-            in_channels = in_channels,
-            out_channels = 32,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv2 = nn.Conv2d(
-            in_channels = 32,
-            out_channels = 64,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-        self.conv3 = nn.Conv2d(
-            in_channels = 64,
-            out_channels = 128,
-            kernel_size = (3, 3),
-            stride = (2, 2),
-            padding = (1, 1),
-        )
-
+        self.conv1 = getConv2D(in_channels, 32, 3, 2, 1)
+        self.conv2 = getConv2D(32, 64, 3, 2, 1)
+        self.conv3 = getConv2D(64, 128, 3, 2, 1)   
+        
         self.size_after_conv = input_image_size
         for _ in range(3):
             self.size_after_conv = calculate2DConvOutput(3, 1, 2, self.size_after_conv)
@@ -317,31 +281,9 @@ class variational_AE(nn.Module):
         self.fc4 = nn.Linear(self.fc_in_size//4, self.fc_in_size)
         
         #decoder
-        self.convTrans1 = nn.ConvTranspose2d(
-            in_channels=128,
-            out_channels=64,
-            kernel_size=(3,3),
-            stride=(2,2),
-            padding=(1,1),
-        )
-        
-        self.convTrans2 = nn.ConvTranspose2d(
-            in_channels=64,
-            out_channels=32,
-            kernel_size=(3,3),
-            stride=(2,2),
-            padding=(1,1),
-            output_padding=(1,1),
-        )
-        
-        self.convTrans3 = nn.ConvTranspose2d(
-            in_channels=32,
-            out_channels=in_channels,
-            kernel_size=(3,3),
-            stride=(2,2),
-            padding=(1,1),
-            output_padding=(1,1)
-        )
+        self.convTrans1 = getConvTranspose2D(128, 64, 3, 2, 1)
+        self.convTrans2 = getConvTranspose2D(64, 32, 3, 2, 1)
+        self.convTrans3 = getConvTranspose2D(32, in_channels, 3, 2, 1)
 
         self.decode = [self.fc3, self.fc4, unflatBatch(shape = self.image_size_after_conv), self.convTrans1, self.convTrans2, self.convTrans3]
         self.activate_decoder = []
